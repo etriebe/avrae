@@ -445,6 +445,18 @@ class SheetManager(commands.Cog):
         """  # noqa: E501
         char: Character = await Character.from_ctx(ctx, ignore_guild=True)
 
+        if char.is_active_channel(ctx):
+            # TODO: How should this be handled if someone sets a character as server while in a channel that has a more specific setting?
+            # Prompt and act based on that?
+            msg = f"You have a more specific channel character set as {char.name}."
+            await ctx.send(f"{msg} You have no global active character.")
+            try:
+                # TODO: I think we need an attempt to get the server character here if appropriate
+                global_character = await ctx.get_character()
+            except NoCharacter:
+                await ctx.send(f"{msg} You have no global active character.")
+            else:
+                await ctx.send(f"{msg} {global_character.name} is now active.")
         if char.is_active_server(ctx):
             await char.unset_server_active(ctx)
             msg = f"Active server character unset from {char.name}."
@@ -456,6 +468,36 @@ class SheetManager(commands.Cog):
                 await ctx.send(f"{msg} {global_character.name} is now active.")
         else:
             result = await char.set_server_active(ctx)
+            if result.did_unset_server_active:
+                await ctx.send(f"Active server character changed to {char.name}.")
+            else:
+                await ctx.send(f"Active server character set to {char.name}.")
+
+        await try_delete(ctx.message)
+
+    @character.command(name="channel")
+    @commands.guild_only()
+    async def character_channel(self, ctx):
+        """
+        Sets the current global or server active character (whatever is more specific) as a channel character.
+        If the character is already the channel character, unsets the channel character.
+
+        All commands in the channel that use your active character will instead use the channel character, even if the active character is changed elsewhere.
+        """  # noqa: E501
+        char: Character = await Character.from_ctx(ctx, ignore_guild=True)
+
+        if char.is_active_channel(ctx):
+            await char.unset_channel_active(ctx)
+            msg = f"Active channel character unset from {char.name}."
+            try:
+                # TODO: I think we need an attempt to get the server character here if appropriate
+                global_character = await ctx.get_character()
+            except NoCharacter:
+                await ctx.send(f"{msg} You have no global active character.")
+            else:
+                await ctx.send(f"{msg} {global_character.name} is now active.")
+        else:
+            result = await char.set_channel_active(ctx)
             if result.did_unset_server_active:
                 await ctx.send(f"Active server character changed to {char.name}.")
             else:
@@ -565,6 +607,7 @@ class SheetManager(commands.Cog):
 
         # keeps an old check if the old character was active on the current server
         was_server_active = old_character.is_active_server(ctx)
+        was_channel_active = old_character.is_active_channel(ctx)
 
         await character.commit(ctx)
 
@@ -574,6 +617,8 @@ class SheetManager(commands.Cog):
             await character.set_active(ctx)
         if was_server_active:
             await character.set_server_active(ctx)
+        if was_channel_active:
+            await character.set_channel_active(ctx)
 
         await loading.edit(content=f"Updated and saved data for {character.name}!")
         if args.last("v"):
